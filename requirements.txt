@@ -1,1 +1,5 @@
-
+python-telegram-bot
+flask
+httpx
+apscheduler
+psycopg2-binary
