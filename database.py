@@ -2,9 +2,7 @@ import os
 import psycopg2
 from psycopg2 import pool
 import json
-
-# Railway 会自动注入这个环境变量
-DATABASE_URL = os.getenv("DATABASE_URL")
+from config import DATABASE_URL  # 关键：直接从 config.py 读取数据库链接
 
 # 创建一个简单的连接池
 db_pool = None
