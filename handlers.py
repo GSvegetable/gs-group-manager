@@ -52,11 +52,9 @@ async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_id = update.effective_user.id; chat_id = update.effective_chat.id
         if chat_id < 0 and not await is_verified_bot_owner_admin(context.bot, chat_id):
-            await update.message.reply_text("❌ 未授权：开发者账号权限不足，服务已暂停。")
+            # ===== 【修改点：按照你的要求改了提示语】 =====
+            await update.message.reply_text("该群权限不足 联系 @gsyxyc")
             return
-        
-        # ========== 【已删除强制入群频道检测部分】 ==========
-        # 原本这里有个 if 判断 REQUIRED_CHANNEL，现在去掉了。
         
         user_nav_state[chat_id] = 'home'
         await update.message.reply_text(utils.get_text(user_id, 'main_msg', user_ui_lang), reply_markup=utils.get_main_keyboard(user_id, user_ui_lang), parse_mode='HTML', disable_web_page_preview=True)
@@ -67,7 +65,9 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         query = update.callback_query; await query.answer(); user_id = query.from_user.id; chat_id = query.message.chat_id
         if chat_id < 0 and not await is_verified_bot_owner_admin(context.bot, chat_id):
-            await query.edit_message_text("❌ 开发者账号权限变更，机器人已停止服务。"); return
+            # ===== 【修改点：按照你的要求改了提示语】 =====
+            await query.edit_message_text("该群权限不足 联系 @gsyxyc")
+            return
 
         if query.data == 'custom_btn':
             user_nav_state[chat_id] = 'level2'
@@ -94,7 +94,10 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_id = update.effective_user.id; chat_id = update.message.chat_id; user_text = update.message.text
-        if chat_id < 0 and not await is_verified_bot_owner_admin(context.bot, chat_id): return
+        if chat_id < 0 and not await is_verified_bot_owner_admin(context.bot, chat_id):
+            # ===== 【修改点：文字消息拦截也改成了这句话】 =====
+            await update.message.reply_text("该群权限不足 联系 @gsyxyc")
+            return
         if user_text == '主菜单': await show_menu(update, context); return
 
         if chat_id in user_conversations:
