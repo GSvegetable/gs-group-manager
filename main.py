@@ -2,6 +2,7 @@ import os
 import threading
 import logging
 import time
+import asyncio
 from flask import Flask
 from telegram.ext import CommandHandler, CallbackQueryHandler, MessageHandler, filters, ChatMemberHandler
 
@@ -20,7 +21,7 @@ def run_web():
     app.run(host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
-    # 启动保活网页
+    # 1. 启动保活网页
     web_thread = threading.Thread(target=run_web)
     web_thread.daemon = True
     web_thread.start()
@@ -31,14 +32,22 @@ if __name__ == "__main__":
     handlers.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.handle_message))
     handlers.application.add_handler(ChatMemberHandler(handlers.chat_member_update))
 
+    # ===== ✨ 关键修复：强行删除 Telegram 端残留的 Webhook =====
+    try:
+        print("🧹 正在清理残留的 Webhook 连接，准备接管...")
+        # 用 asyncio.run 发送删除指令
+        asyncio.run(handlers.application.bot.delete_webhook(drop_pending_updates=True))
+        print("✅ 连接清理成功，开始接管消息！")
+    except Exception as e:
+        print(f"⚠️ 清理 Webhook 时出现微小异常（可忽略）：{e}")
+
     # ===== 核心不死逻辑 =====
     while True:
         try:
             print("✅ 机器人已上线并开始监听消息...")
+            # 开始长轮询
             handlers.application.run_polling()
         except Exception as e:
-            # 任何导致机器人退出的错误都会进入这里
-            print(f"❌ 机器人遭遇连接中断 (可能是 TimedOut 超时): {e}")
+            print(f"❌ 机器人遭遇连接中断：{e}")
             print("🔄 正在等待 5 秒后自动重启机器人...")
-            time.sleep(5) # 暂停5秒后再试，防止无限快速崩溃
-            # 注意：由于 run_polling 停止后，add_handler 已存在，循环即可
+            time.sleep(5)
