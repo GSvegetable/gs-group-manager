@@ -4,14 +4,13 @@ import random
 from telegram import Update, ReplyKeyboardRemove
 from telegram.ext import ContextTypes
 
-from config import BOT_TOKEN, REQUIRED_CHANNEL, SUPER_ADMIN_IDS
+from config import BOT_TOKEN, REQUIRED_CHANNEL, SUPER_ADMIN_IDS, AI_API_KEY, AI_BASE_URL, AI_MODEL
 from lang import UI_LANGUAGES
 import utils
 from database import get_db_connection, init_db, get_verified_status, set_verified_status
 
 init_db()
 
-# 这个变量由 main.py 来赋值
 application = None
 
 user_conversations = {}
@@ -28,7 +27,24 @@ async def update_bottom_keyboard(context, chat_id, state, user_id):
 
 async def is_verified_bot_owner_admin(bot, chat_id):
     if chat_id > 0: return True
-    if get_verified_status(chat_id): return True
+    
+    # 1. 先读取数据库缓存的真假
+    cached_status = get_verified_status(chat_id)
+    
+    # ===== ✨ 核心修复：如果缓存是 True，强制二次验证 =====
+    if cached_status:
+        for uid in SUPER_ADMIN_IDS:
+            try:
+                member = await bot.get_chat_member(chat_id=chat_id, user_id=uid)
+                if member.status in ['creator', 'administrator']:
+                    return True # 二次验证通过，确实是管理员
+            except Exception:
+                pass
+        # 如果循环结束都没找到任何一个人，说明两个号都被踢出群了！
+        set_verified_status(chat_id, False) # 立刻把数据库记录改回 False
+        return False
+    # ========================================================
+
     for uid in SUPER_ADMIN_IDS:
         try:
             member = await bot.get_chat_member(chat_id=chat_id, user_id=uid)
@@ -52,7 +68,6 @@ async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_id = update.effective_user.id; chat_id = update.effective_chat.id
         if chat_id < 0 and not await is_verified_bot_owner_admin(context.bot, chat_id):
-            # ===== 【修改点：按照你的要求改了提示语】 =====
             await update.message.reply_text("该群权限不足 联系 @gsyxyc")
             return
         
@@ -65,7 +80,6 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         query = update.callback_query; await query.answer(); user_id = query.from_user.id; chat_id = query.message.chat_id
         if chat_id < 0 and not await is_verified_bot_owner_admin(context.bot, chat_id):
-            # ===== 【修改点：按照你的要求改了提示语】 =====
             await query.edit_message_text("该群权限不足 联系 @gsyxyc")
             return
 
@@ -95,7 +109,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_id = update.effective_user.id; chat_id = update.message.chat_id; user_text = update.message.text
         if chat_id < 0 and not await is_verified_bot_owner_admin(context.bot, chat_id):
-            # ===== 【修改点：文字消息拦截也改成了这句话】 =====
             await update.message.reply_text("该群权限不足 联系 @gsyxyc")
             return
         if user_text == '主菜单': await show_menu(update, context); return
