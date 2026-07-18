@@ -2,9 +2,9 @@ import os
 import psycopg2
 from psycopg2 import pool
 import json
-from config import DATABASE_URL  # 关键：直接从 config.py 读取数据库链接
+from config import DATABASE_URL  # 不再读环境变量，直接读取 config.py
 
-# 创建一个简单的连接池
+# 创建数据库连接池
 db_pool = None
 if DATABASE_URL:
     db_pool = psycopg2.pool.SimpleConnectionPool(1, 10, dsn=DATABASE_URL)
