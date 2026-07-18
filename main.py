@@ -24,12 +24,12 @@ def run_http_server():
     print(f"🟢 保活服务已启动 (端口 {port})")
     server.serve_forever()
 
-# ================= 无限重生机器人核心 =================
-async def run_bot_loop():
+# ================= 永驻事件循环机器人核心 =================
+async def run_bot_loop(loop):
     while True:
         try:
-            print("🚀 正在重新装载机器人的核心功能...")
-            # 每次重启都建一个全新的实例，把之前卡死的痕迹彻底抹掉
+            print("🚀 正在装载机器人的核心功能...")
+            # 使用 loop.run_until_complete 跑，而不是 asyncio.run，防止循环被销毁
             app = Application.builder().token(BOT_TOKEN).build()
             handlers.application = app
 
@@ -42,21 +42,28 @@ async def run_bot_loop():
             app.add_handler(ChatMemberHandler(handlers.chat_member_update))
 
             print("✅ 机器人已稳定上线，开始监听消息...")
+            # 在同一个事件循环里跑，绝对不会再报 `Cannot close a running event loop`
             await app.run_polling()
 
         except Exception as e:
-            # 只要发生任何崩溃，都只会进这里，绝对不会导致程序死亡
             print(f"❌ 机器人遭遇意外崩溃：{e}")
             print("🔄 正在等待 5 秒后自动重启...")
             await asyncio.sleep(5)
 
 if __name__ == "__main__":
-    # 1. 启动保活线程
+    # 1. 启动纯同步网页保活线程
     http_thread = threading.Thread(target=run_http_server, daemon=True)
     http_thread.start()
     
-    # 2. 主线程跑无限重生逻辑
+    # 2. 创建一个永远不会关闭的永久事件循环
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
     try:
-        asyncio.run(run_bot_loop())
+        print("✅ 无限事件循环已启动，机器人开始进入永不掉线模式...")
+        # 让这个永久循环去跑机器人的守护逻辑
+        loop.run_until_complete(run_bot_loop(loop))
     except KeyboardInterrupt:
         print("手动停止机器人...")
+    finally:
+        loop.close()
