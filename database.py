@@ -3,9 +3,8 @@ import psycopg2
 from psycopg2 import pool
 import json
 
-DATABASE_URL = os.getenv('DATABASE_URL')
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-# 创建数据库连接池
 db_pool = None
 if DATABASE_URL:
     db_pool = psycopg2.pool.SimpleConnectionPool(1, 10, dsn=DATABASE_URL)
@@ -22,7 +21,8 @@ def init_db():
             group_id BIGINT PRIMARY KEY,
             welcome_text TEXT,
             welcome_photo_id TEXT,
-            admin_ids TEXT DEFAULT '[]'
+            admin_ids TEXT DEFAULT '[]',
+            verified BOOLEAN DEFAULT FALSE
         )
     """)
     # 创建广告触发词表
@@ -42,13 +42,31 @@ def init_db():
             message_text TEXT
         )
     """)
-    # 创建群组授权表
+    conn.commit()
+    cur.close()
+    conn.close()
+
+# ===== 新增：获取和设置群组验证状态 =====
+def get_verified_status(group_id):
+    conn = get_db_connection()
+    cur = conn.cursor()
+    cur.execute("SELECT verified FROM groups WHERE group_id = %s", (group_id,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if row:
+        return row[0]
+    return False
+
+def set_verified_status(group_id, status):
+    conn = get_db_connection()
+    cur = conn.cursor()
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS authorized_groups (
-            group_id BIGINT PRIMARY KEY,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
+        INSERT INTO groups (group_id, verified) 
+        VALUES (%s, %s) 
+        ON CONFLICT (group_id) 
+        DO UPDATE SET verified = excluded.verified
+    """, (group_id, status))
     conn.commit()
     cur.close()
     conn.close()
