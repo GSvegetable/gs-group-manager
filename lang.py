@@ -1,1 +1,31 @@
-
+UI_LANGUAGES = {
+    'zh': {
+        'main_msg': "机器人由<a href=\"https://t.me/gsyxyc\">宫水</a>打造\n\n-内置反广告\n-自定义欢迎语\n-定时群发消息\n\n请选择功能：",
+        'panel_title': "群管面板：",
+        'btn_welcome': "欢迎语设置",
+        'btn_triggers': "广告触发词",
+        'btn_tasks': "定时群发",
+        'btn_admins': "管理员设置",
+        'back_home': "返回主菜单",
+        'back_level': "返回上一级",
+        'welcome_msg': "请发送您想设置为欢迎语的内容（支持纯文字、单张图片、图文并发）：",
+        'triggers_msg': "当前已设置的触发词：\n{}",
+        'trigger_add': "新增触发词",
+        'trigger_del': "删除触发词",
+        'wait_add_trigger': "请发送您想新增的触发词：",
+        'wait_del_trigger': "请发送您想删除的触发词：",
+        'tasks_msg': "已设置的定时任务：\n{}",
+        'task_add': "新增定时任务",
+        'wait_task_hour': "请回复要发送的小时（0-23，如 8）：",
+        'wait_task_msg': "请回复这个时间点要发送的内容：",
+        'admins_msg': "当前群组管理员 ID：\n{}",
+        'admin_add': "新增管理员",
+        'admin_del': "删除管理员",
+        'wait_add_admin': "请发送要添加的管理员的数字ID：",
+        'wait_del_admin': "请发送要删除的管理员的数字ID：",
+        'no_permission': "你没有权限操作此机器人。",
+        'trigger_empty': "目前没有触发词。",
+        'task_empty': "目前没有定时任务。",
+        'admin_empty': "目前没有设置管理员，群主默认拥有权限。"
+    }
+}
