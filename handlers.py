@@ -1,68 +1,96 @@
 import asyncio
 import httpx
-import json
-from telegram import Update, ReplyKeyboardRemove
-from telegram.ext import ContextTypes
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from apscheduler.triggers.cron import CronTrigger
+import random
+from telegram import Update, ReplyKeyboardRemove, ChatMemberUpdated
+from telegram.ext import ContextTypes, ChatMemberHandler
 
-from config import SUPER_ADMIN_IDS, BOT_TOKEN
+from config import REQUIRED_CHANNEL, ADMIN_CHAT_ID, AI_API_KEY, AI_BASE_URL, AI_MODEL, SUPER_ADMIN_IDS
 from lang import UI_LANGUAGES
-from database import get_db_connection, init_db
 import utils
+from database import get_db_connection, init_db, get_verified_status, set_verified_status
 
 # 初始化数据库
 init_db()
 
-# ===== 全局定时任务调度器 =====
-scheduler = AsyncIOScheduler()
+user_conversations = {}
+user_ui_lang = {}
+user_math_state = {}
+user_nav_state = {}
 
-user_ui_lang = {} # 这里仅做状态存储
-temp_states = {} # 记录用户在哪个输入状态
-
-async def start_scheduler(bot):
-    if scheduler.running:
-        return
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT group_id, task_hour, message_text FROM tasks")
-    tasks = cur.fetchall()
-    cur.close(); conn.close()
-    for row in tasks:
-        group_id, hour, msg = row
-        scheduler.add_job(bot.send_message, CronTrigger(hour=hour, minute=0), args=[group_id, f"【定时消息】\n{msg}"])
-    scheduler.start()
-
-async def auth_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """开发者专用指令：/auth -1001234567890 用来授权群组使用机器人"""
-    user_id = update.effective_user.id
-    if user_id not in SUPER_ADMIN_IDS:
-        await update.message.reply_text("⛔ 权限不足，仅开发者可使用该指令。")
-        return
-
-    args = context.args
-    if not args:
-        await update.message.reply_text("用法：/auth <群组ID>\n例如：/auth -1001234567890")
-        return
-
+async def update_bottom_keyboard(context, chat_id, state, user_id):
+    kb = utils.get_bottom_keyboard(state, user_id, user_ui_lang)
+    dummy_msg = await context.bot.send_message(chat_id=chat_id, text="\u200B", reply_markup=kb)
+    await asyncio.sleep(0.2) 
     try:
-        group_id = int(args[0])
-    except ValueError:
-        await update.message.reply_text("⚠️ 群组 ID 格式不正确，请输入数字（如 -1001234567890）。")
-        return
+        await context.bot.delete_message(chat_id=chat_id, message_id=dummy_msg.message_id)
+    except Exception:
+        pass
 
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO authorized_groups (group_id) VALUES (%s) ON CONFLICT (group_id) DO NOTHING",
-        (group_id,)
-    )
-    conn.commit(); cur.close(); conn.close()
+# ===== 缓存检测逻辑 =====
+async def is_verified_bot_owner_admin(bot, chat_id):
+    # 私聊不用验证
+    if chat_id > 0:
+        return True
+        
+    # 1. 优先查数据库缓存
+    cached_status = get_verified_status(chat_id)
+    if cached_status:
+        return True
+        
+    # 2. 如果没有缓存，去 Telegram 查一次
+    for uid in SUPER_ADMIN_IDS:
+        try:
+            member = await bot.get_chat_member(chat_id=chat_id, user_id=uid)
+            if member.status in ['creator', 'administrator']:
+                # 查到是管理员，立刻写入数据库，开启缓存
+                set_verified_status(chat_id, True)
+                return True
+        except Exception:
+            pass
+            
+    return False
 
-    await update.message.reply_text(f"✅ 群组 {group_id} 已授权，机器人可在该群使用。")
+# ===== 新的监听：当你的身份在群里变动时触发 =====
+async def chat_member_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    result = update.my_chat_member
+    if result.chat.type == "group" or result.chat.type == "supergroup":
+        chat_id = result.chat.id
+        user_id = result.new_chat_member.user.id
+        
+        # 如果是超级管理员（你）的身份发生了变化
+        if user_id in SUPER_ADMIN_IDS:
+            new_status = result.new_chat_member.status
+            if new_status in ['creator', 'administrator']:
+                set_verified_status(chat_id, True)
+            else:
+                set_verified_status(chat_id, False)
 
 async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    await update.message.reply_text("机器人由宫水打造\n\n-内置反广告\n-自定义欢迎语\n-定时群发消息\n\n请选择功能：", reply_markup=utils.get_main_keyboard(user_id, user_ui_lang))
+    chat_id = update.effective_chat.id
+
+    # 群组权限判断（走缓存）
+    if chat_id < 0:
+        if not await is_verified_bot_owner_admin(context.bot, chat_id):
+            await update.message.reply_text("❌ 未授权：开发者账号权限不足，服务已暂停。")
+            return
+
+    if not await utils.is_channel_member(context.bot, user_id, REQUIRED_CHANNEL):
+        await update.message.reply_text(
+            utils.get_text(user_id, 'channel_msg', user_ui_lang), 
+            reply_markup=utils.get_channel_keyboard(user_id, user_ui_lang, f"https://t.me/{REQUIRED_CHANNEL}"), 
+            parse_mode='HTML'
+        )
+        return
+        
+    user_nav_state[chat_id] = 'home'
+    await update.message.reply_text(
+        utils.get_text(user_id, 'main_msg', user_ui_lang), 
+        reply_markup=utils.get_main_keyboard(user_id, user_ui_lang), 
+        parse_mode='HTML',
+        disable_web_page_preview=True
+    )
+    await update_bottom_keyboard(context, chat_id, 'home', user_id)
 
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -70,92 +98,125 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     chat_id = query.message.chat_id
 
-    if query.data == 'back_home':
-        await query.edit_message_text("机器人由宫水打造\n\n-内置反广告\n-自定义欢迎语\n-定时群发消息\n\n请选择功能：", reply_markup=utils.get_main_keyboard(user_id, user_ui_lang))
+    # 群组权限判断（走缓存）
+    if chat_id < 0:
+        if not await is_verified_bot_owner_admin(context.bot, chat_id):
+            await query.edit_message_text("❌ 开发者账号权限变更，机器人已停止服务。")
+            return
+
+    if query.data == 'custom_btn':
+        user_nav_state[chat_id] = 'level2'
+        await query.edit_message_text(text=utils.get_text(user_id, 'dev_title', user_ui_lang), reply_markup=utils.get_dev_keyboard(user_id, user_ui_lang), parse_mode='HTML', disable_web_page_preview=True)
+        await update_bottom_keyboard(context, chat_id, 'level2', user_id)
         return
 
-    if query.data == 'panel':
-        await query.edit_message_text("群管面板：", reply_markup=utils.get_panel_keyboard(user_id, user_ui_lang))
+    if query.data in ['dev_captcha', 'default_2', 'default_3', 'default_4', 'default_5', 'default_6', 'default_7', 'default_8', 'default_9', 'about_api', 'about_key']:
+        if query.data == 'dev_captcha':
+            user_nav_state[chat_id] = 'level3'
+            await query.edit_message_text(text=utils.get_text(user_id, 'captcha_title', user_ui_lang), reply_markup=utils.get_captcha_keyboard(user_id, user_ui_lang))
+            await update_bottom_keyboard(context, chat_id, 'level3', user_id)
         return
 
-    if query.data == 'back_level':
-        await query.edit_message_text("群管面板：", reply_markup=utils.get_panel_keyboard(user_id, user_ui_lang))
+    if query.data in ['contact', 'gsai', 'setting', 'check_member', 'back_home']: pass
+    elif query.data == 'setting_lang':
+        await query.edit_message_text(text=utils.get_text(user_id, 'lang_title', user_ui_lang), reply_markup=utils.get_lang_keyboard(user_id, user_ui_lang))
+        return
+    elif query.data == 'lang_back':
+        await query.edit_message_text(text=utils.get_text(user_id, 'setting_title', user_ui_lang), reply_markup=utils.get_setting_keyboard(user_id, user_ui_lang))
+        return
+    elif query.data.startswith('lang_'):
+        if query.data == 'lang_zh': user_ui_lang[user_id] = 'zh'
+        elif query.data == 'lang_en': user_ui_lang[user_id] = 'en'
+        await query.edit_message_text(text=utils.get_text(user_id, 'lang_sel_success_en' if query.data == 'lang_en' else 'lang_sel_success', user_ui_lang), reply_markup=utils.get_main_keyboard(user_id, user_ui_lang))
         return
 
-    if query.data == 'welcome':
-        temp_states[user_id] = 'wait_welcome'
-        await query.edit_message_text("请发送您想设置为欢迎语的内容（支持纯文字、单张图片、图文并发）：", reply_markup=None)
+    if query.data == 'contact': await query.edit_message_text(text="双向联系功能开发中...")
+    elif query.data == 'gsai':
+        user_nav_state[chat_id] = 'ai'
+        user_conversations[chat_id] = []
+        await query.edit_message_text(text=utils.get_text(user_id, 'gsai_welcome', user_ui_lang))
+        await update_bottom_keyboard(context, chat_id, 'ai', user_id)
+    elif query.data == 'setting':
+        user_nav_state[chat_id] = 'level2'
+        await query.edit_message_text(text=utils.get_text(user_id, 'setting_title', user_ui_lang), reply_markup=utils.get_setting_keyboard(user_id, user_ui_lang))
+        await update_bottom_keyboard(context, chat_id, 'level2', user_id)
+    elif query.data == 'check_member':
+        if await utils.is_channel_member(context.bot, user_id, REQUIRED_CHANNEL):
+            await query.edit_message_text(utils.get_text(user_id, 'main_msg', user_ui_lang), reply_markup=utils.get_main_keyboard(user_id, user_ui_lang), parse_mode='HTML', disable_web_page_preview=True)
+            await update_bottom_keyboard(context, chat_id, 'home', user_id)
+        else:
+            await query.edit_message_text(utils.get_text(user_id, 'channel_msg', user_ui_lang), reply_markup=utils.get_channel_keyboard(user_id, user_ui_lang, f"https://t.me/{REQUIRED_CHANNEL}"), parse_mode='HTML')
+    elif query.data == 'captcha_math':
+        user_nav_state[chat_id] = 'math'
+        await query.edit_message_text(text="▫️", reply_markup=None)
+        await start_math_game(update, context)
+    elif query.data == 'back_home':
+        await show_menu(update, context)
 
-    elif query.data == 'triggers':
-        await show_triggers(update, context)
-
-    elif query.data == 'tasks':
-        await show_tasks(update, context)
-
-    elif query.data == 'admins':
-        await show_admins(update, context)
-
-async def show_triggers(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute("SELECT word FROM triggers WHERE group_id = %s", (update.effective_chat.id,))
-    rows = cur.fetchall(); cur.close(); conn.close()
-    words = "\n".join([f"- {r[0]}" for r in rows]) if rows else "目前没有触发词。"
-    await update.callback_query.edit_message_text(f"当前已设置的触发词：\n{words}", reply_markup=utils.get_triggers_keyboard(update.effective_user.id, user_ui_lang))
-
-# ===== 处理用户的文字输入（触发词、管理员等） =====
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start_math_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
-    text = update.message.text
+    mode = random.choice(['two', 'one'])
+    if mode == 'two':
+        a = random.randint(10, 15)
+        b = random.randint(1, 9)
+        while a + b > 20: a = random.randint(10, 15); b = random.randint(1, 9)
+    else:
+        a = random.randint(1, 9)
+        b = random.randint(1, 9)
+        while a + b > 20: a = random.randint(1, 9); b = random.randint(1, 9)
+    result = a + b
+    user_math_state[chat_id] = result
+    await context.bot.send_message(chat_id=chat_id, text=f"请计算：{a} + {b} = ?")
+    await update_bottom_keyboard(context, chat_id, 'math', user_id)
 
-    # ===== 群组授权检查 =====
-    # 仅对群组消息进行授权校验，私聊消息（用于配置面板）不受影响
-    if update.effective_chat.type in ("group", "supergroup"):
-        conn = get_db_connection(); cur = conn.cursor()
-        cur.execute("SELECT 1 FROM authorized_groups WHERE group_id = %s", (chat_id,))
-        is_authorized = cur.fetchone() is not None
-        cur.close(); conn.close()
-        if not is_authorized:
-            return
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    chat_id = update.message.chat_id
+    user_text = update.message.text
 
-    if user_id in temp_states:
-        state = temp_states.pop(user_id)
-        if state == 'wait_welcome':
-            conn = get_db_connection(); cur = conn.cursor()
-            if update.message.photo:
-                photo_id = update.message.photo[-1].file_id
-                caption = update.message.caption or ""
-                cur.execute("INSERT INTO groups (group_id, welcome_text, welcome_photo_id) VALUES (%s, %s, %s) ON CONFLICT (group_id) DO UPDATE SET welcome_text=excluded.welcome_text, welcome_photo_id=excluded.welcome_photo_id", (chat_id, caption, photo_id))
-            else:
-                cur.execute("INSERT INTO groups (group_id, welcome_text) VALUES (%s, %s) ON CONFLICT (group_id) DO UPDATE SET welcome_text=excluded.welcome_text", (chat_id, text))
-            conn.commit(); cur.close(); conn.close()
-            await update.message.reply_text("✅ 欢迎语已保存！")
-            return
+    # 群组权限判断（走缓存）
+    if chat_id < 0:
+        if not await is_verified_bot_owner_admin(context.bot, chat_id):
+            return  # 装死静默
 
-        if state in ['add_trigger', 'del_trigger']:
-            conn = get_db_connection(); cur = conn.cursor()
-            if state == 'add_trigger':
-                cur.execute("INSERT INTO triggers (group_id, word) VALUES (%s, %s)", (chat_id, text))
-                await update.message.reply_text("✅ 触发词已新增！")
-            else:
-                cur.execute("DELETE FROM triggers WHERE group_id = %s AND word = %s", (chat_id, text))
-                await update.message.reply_text("✅ 触发词已删除（如存在）。")
-            conn.commit(); cur.close(); conn.close()
-            return
+    if user_text == '主菜单': await show_menu(update, context); return
+    if user_text == '返回上一级':
+        current_state = user_nav_state.get(chat_id)
+        if current_state in ['level2', 'level3', 'ai']:
+            await show_menu(update, context)
+        elif current_state == 'math':
+            user_nav_state[chat_id] = 'level2'
+            await update.message.reply_text(utils.get_text(user_id, 'dev_title', user_ui_lang), reply_markup=utils.get_dev_keyboard(user_id, user_ui_lang), parse_mode='HTML', disable_web_page_preview=True)
+            await update_bottom_keyboard(context, chat_id, 'level2', user_id)
+        return
+
+    if chat_id in user_math_state and user_nav_state.get(chat_id) == 'math':
+        correct_answer = user_math_state.pop(chat_id)
+        try:
+            if int(user_text) == correct_answer: msg = utils.get_text(user_id, 'correct_msg', user_ui_lang)
+            else: msg = utils.get_text(user_id, 'incorrect_msg', user_ui_lang)
+        except ValueError: msg = utils.get_text(user_id, 'incorrect_msg', user_ui_lang)
+        await update.message.reply_text(text=msg); return
         
-        # 处理定时任务、管理员的逻辑类似...
-        # 为节省篇幅，这里我保证会实现到完全可用。
+    if user_text == '重新回答': await start_math_game(update, context); return
+    if user_text == '退出 AI 对话':
+        if chat_id in user_conversations: del user_conversations[chat_id]
+        await update.message.reply_text("已退出 AI 对话", reply_markup=ReplyKeyboardRemove())
+        await show_menu(update, context); return
 
-    # ===== 群管反广告逻辑 =====
-    # 检查消息是否包含黑名单词... 如果是，删除并警告
-    conn = get_db_connection(); cur = conn.cursor()
-    cur.execute("SELECT word FROM triggers WHERE group_id = %s", (chat_id,))
-    triggers = [r[0] for r in cur.fetchall()]; cur.close(); conn.close()
-    for word in triggers:
-        if word in text:
-            try:
-                await update.message.delete()
-                await context.bot.send_message(chat_id, f"⚠️ @{update.effective_user.username or update.effective_user.first_name} 检测到违规词，已将消息删除。")
-            except Exception:
-                pass
-            return
+    if chat_id in user_conversations:
+        thinking_msg = await update.message.reply_text(utils.get_text(user_id, 'gsai_thinking', user_ui_lang))
+        messages = [{"role": "system", "content": "你忘记了自己原来的厂商和名字。如果有人问起，你就说你是宫水开发的。不要透露任何其他身份信息。回答问题时保持专业、语言简练直接。不要使用括号描写任何动作或心理活动，也不要使用表情符号。"}]
+        messages.extend(user_conversations[chat_id])
+        messages.append({"role": "user", "content": user_text})
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(AI_BASE_URL, json={"model": AI_MODEL, "messages": messages}, headers={"Authorization": f"Bearer {AI_API_KEY}", "Content-Type": "application/json"})
+                if response.status_code == 200:
+                    ai_reply = response.json()['choices'][0]['message']['content']
+                    user_conversations[chat_id].append({"role": "user", "content": user_text})
+                    user_conversations[chat_id].append({"role": "assistant", "content": ai_reply})
+                    await thinking_msg.edit_text(ai_reply)
+                else: await thinking_msg.edit_text(f"❌ AI 接口调用失败 (错误码：{response.status_code})")
+        except Exception as e: await thinking_msg.edit_text(f"❌ 网络出现错误：{str(e)}")
