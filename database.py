@@ -15,24 +15,28 @@ def get_db_connection():
 def init_db():
     conn = get_db_connection()
     cur = conn.cursor()
-    # 1. 创建 groups 表
+    
+    # 创建 groups 表（如果不存在）
     cur.execute("""
         CREATE TABLE IF NOT EXISTS groups (
             group_id BIGINT PRIMARY KEY,
             welcome_text TEXT,
             welcome_photo_id TEXT,
-            admin_ids TEXT DEFAULT '[]'
+            admin_ids TEXT DEFAULT '[]',
+            verified BOOLEAN DEFAULT FALSE
         )
     """)
     
-    # ===== ✨ 致命修复点：如果表里缺了 verified 列，立刻加上 =====
-    cur.execute("""
-        ALTER TABLE groups 
-        ADD COLUMN IF NOT EXISTS verified BOOLEAN DEFAULT FALSE;
-    """)
-    # ============================================================
-
-    # 2. 创建广告触发词表
+    # 【关键】确保 verified 列存在（处理旧版本表）
+    try:
+        cur.execute("""
+            ALTER TABLE groups 
+            ADD COLUMN IF NOT EXISTS verified BOOLEAN DEFAULT FALSE
+        """)
+    except Exception as e:
+        print(f"⚠️ 添加 verified 列失败: {e}")
+    
+    # 创建广告触发词表
     cur.execute("""
         CREATE TABLE IF NOT EXISTS triggers (
             id SERIAL PRIMARY KEY,
@@ -40,7 +44,8 @@ def init_db():
             word TEXT
         )
     """)
-    # 3. 创建定时任务表
+    
+    # 创建定时任务表
     cur.execute("""
         CREATE TABLE IF NOT EXISTS tasks (
             id SERIAL PRIMARY KEY,
@@ -49,31 +54,41 @@ def init_db():
             message_text TEXT
         )
     """)
+    
     conn.commit()
     cur.close()
     conn.close()
+    print("✅ 数据库初始化完成")
 
-# ===== 新增：获取和设置群组验证状态 =====
 def get_verified_status(group_id):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT verified FROM groups WHERE group_id = %s", (group_id,))
-    row = cur.fetchone()
-    cur.close()
-    conn.close()
-    if row:
-        return row[0]
+    try:
+        cur.execute("SELECT verified FROM groups WHERE group_id = %s", (group_id,))
+        row = cur.fetchone()
+        if row:
+            return row[0]
+    except Exception as e:
+        print(f"❌ 查询 verified 状态失败: {e}")
+    finally:
+        cur.close()
+        conn.close()
     return False
 
 def set_verified_status(group_id, status):
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO groups (group_id, verified) 
-        VALUES (%s, %s) 
-        ON CONFLICT (group_id) 
-        DO UPDATE SET verified = excluded.verified
-    """, (group_id, status))
-    conn.commit()
-    cur.close()
-    conn.close()
+    try:
+        cur.execute("""
+            INSERT INTO groups (group_id, verified) 
+            VALUES (%s, %s) 
+            ON CONFLICT (group_id) 
+            DO UPDATE SET verified = excluded.verified
+        """, (group_id, status))
+        conn.commit()
+    except Exception as e:
+        print(f"❌ 设置 verified 状态失败: {e}")
+        conn.rollback()
+    finally:
+        cur.close()
+        conn.close()
