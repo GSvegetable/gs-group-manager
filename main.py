@@ -1,7 +1,7 @@
 import os
 import asyncio
 from flask import Flask, request
-from telegram import Update, Bot
+from telegram import Update
 from telegram.ext import CommandHandler, CallbackQueryHandler, MessageHandler, filters, ChatMemberHandler
 
 import handlers
@@ -11,25 +11,22 @@ app = Flask(__name__)
 
 @app.route(f"/telegram/{BOT_TOKEN}", methods=["POST"])
 def webhook():
-    update = Update.de_json(request.get_json(force=True), bot)
+    # 读取 handlers 里已经实例化好的 bot
+    update = Update.de_json(request.get_json(force=True), handlers.application.bot)
     handlers.application.process_update(update)
     return "OK", 200
 
 def main():
-    bot = Bot(token=BOT_TOKEN)
-    # 尝试获取外部域名，如果获取不到，使用你之前在 Variables 里配置的 WEBHOOK_URL
+    # 自动获取 Railway 域名
     domain = os.getenv('RAILWAY_PUBLIC_DOMAIN')
     if not domain:
-        # 如果没自动获取到，fallback 到环境变量你手动填的
         domain = os.getenv('WEBHOOK_URL', 'https://gs-group-manager.up.railway.app')
     
     webhook_url = f"{domain}/telegram/{BOT_TOKEN}"
-    
-    # ======= 关键修复：加上 await =======
-    asyncio.run(bot.set_webhook(url=webhook_url))
-    # =====================================
+    # 使用 asyncio.run 正确注册 Webhook，解决各种冲突
+    asyncio.run(handlers.application.bot.set_webhook(url=webhook_url))
 
-    # 注册处理器
+    # 注册所有的控制器
     handlers.application.add_handler(CommandHandler("start", handlers.show_menu))
     handlers.application.add_handler(CallbackQueryHandler(handlers.button_click))
     handlers.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.handle_message))
