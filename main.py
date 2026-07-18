@@ -32,21 +32,18 @@ if __name__ == "__main__":
     handlers.application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.handle_message))
     handlers.application.add_handler(ChatMemberHandler(handlers.chat_member_update))
 
-    # ===== ✨ 关键修复：强行删除 Telegram 端残留的 Webhook =====
+    # 清理残留的 Webhook
     try:
-        print("🧹 正在清理残留的 Webhook 连接，准备接管...")
-        # 用 asyncio.run 发送删除指令
         asyncio.run(handlers.application.bot.delete_webhook(drop_pending_updates=True))
-        print("✅ 连接清理成功，开始接管消息！")
-    except Exception as e:
-        print(f"⚠️ 清理 Webhook 时出现微小异常（可忽略）：{e}")
+    except Exception:
+        pass
 
     # ===== 核心不死逻辑 =====
     while True:
         try:
             print("✅ 机器人已上线并开始监听消息...")
-            # 开始长轮询
-            handlers.application.run_polling()
+            # ✨ 关键修复：用 asyncio.run 包裹运行，解决“找不到事件循环”的问题
+            asyncio.run(handlers.application.run_polling())
         except Exception as e:
             print(f"❌ 机器人遭遇连接中断：{e}")
             print("🔄 正在等待 5 秒后自动重启机器人...")
