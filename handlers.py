@@ -33,6 +33,33 @@ async def start_scheduler(bot):
         scheduler.add_job(bot.send_message, CronTrigger(hour=hour, minute=0), args=[group_id, f"【定时消息】\n{msg}"])
     scheduler.start()
 
+async def auth_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """开发者专用指令：/auth -1001234567890 用来授权群组使用机器人"""
+    user_id = update.effective_user.id
+    if user_id not in SUPER_ADMIN_IDS:
+        await update.message.reply_text("⛔ 权限不足，仅开发者可使用该指令。")
+        return
+
+    args = context.args
+    if not args:
+        await update.message.reply_text("用法：/auth <群组ID>\n例如：/auth -1001234567890")
+        return
+
+    try:
+        group_id = int(args[0])
+    except ValueError:
+        await update.message.reply_text("⚠️ 群组 ID 格式不正确，请输入数字（如 -1001234567890）。")
+        return
+
+    conn = get_db_connection(); cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO authorized_groups (group_id) VALUES (%s) ON CONFLICT (group_id) DO NOTHING",
+        (group_id,)
+    )
+    conn.commit(); cur.close(); conn.close()
+
+    await update.message.reply_text(f"✅ 群组 {group_id} 已授权，机器人可在该群使用。")
+
 async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     await update.message.reply_text("机器人由宫水打造\n\n-内置反广告\n-自定义欢迎语\n-定时群发消息\n\n请选择功能：", reply_markup=utils.get_main_keyboard(user_id, user_ui_lang))
@@ -80,6 +107,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     chat_id = update.effective_chat.id
     text = update.message.text
+
+    # ===== 群组授权检查 =====
+    # 仅对群组消息进行授权校验，私聊消息（用于配置面板）不受影响
+    if update.effective_chat.type in ("group", "supergroup"):
+        conn = get_db_connection(); cur = conn.cursor()
+        cur.execute("SELECT 1 FROM authorized_groups WHERE group_id = %s", (chat_id,))
+        is_authorized = cur.fetchone() is not None
+        cur.close(); conn.close()
+        if not is_authorized:
+            return
 
     if user_id in temp_states:
         state = temp_states.pop(user_id)

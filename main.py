@@ -21,6 +21,7 @@ def main():
     Thread(target=run_web).start()
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", handlers.show_menu))
+    application.add_handler(CommandHandler("auth", handlers.auth_group))
     application.add_handler(CallbackQueryHandler(handlers.button_click))
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.handle_message))
     
