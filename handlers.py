@@ -11,6 +11,7 @@ from database import get_db_connection, init_db, get_verified_status, set_verifi
 
 init_db()
 
+# 这个变量由 main.py 来赋值
 application = None
 
 user_conversations = {}
@@ -25,25 +26,22 @@ async def update_bottom_keyboard(context, chat_id, state, user_id):
     try: await context.bot.delete_message(chat_id=chat_id, message_id=dummy_msg.message_id)
     except Exception: pass
 
+# ========= 双层安全锁 =========
 async def is_verified_bot_owner_admin(bot, chat_id):
     if chat_id > 0: return True
     
-    # 1. 先读取数据库缓存的真假
     cached_status = get_verified_status(chat_id)
     
-    # ===== ✨ 核心修复：如果缓存是 True，强制二次验证 =====
     if cached_status:
         for uid in SUPER_ADMIN_IDS:
             try:
                 member = await bot.get_chat_member(chat_id=chat_id, user_id=uid)
                 if member.status in ['creator', 'administrator']:
-                    return True # 二次验证通过，确实是管理员
-            except Exception:
-                pass
-        # 如果循环结束都没找到任何一个人，说明两个号都被踢出群了！
-        set_verified_status(chat_id, False) # 立刻把数据库记录改回 False
+                    return True
+            except Exception: pass
+        # 漏洞修复：发现被踢，立刻写库，彻底断掉后续访问
+        set_verified_status(chat_id, False) 
         return False
-    # ========================================================
 
     for uid in SUPER_ADMIN_IDS:
         try:
@@ -53,6 +51,13 @@ async def is_verified_bot_owner_admin(bot, chat_id):
                 return True
         except Exception: pass
     return False
+
+async def is_user_group_admin(bot, chat_id, user_id):
+    try:
+        member = await bot.get_chat_member(chat_id=chat_id, user_id=user_id)
+        return member.status in ['creator', 'administrator']
+    except Exception:
+        return False
 
 async def chat_member_update(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
@@ -67,9 +72,13 @@ async def chat_member_update(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_id = update.effective_user.id; chat_id = update.effective_chat.id
-        if chat_id < 0 and not await is_verified_bot_owner_admin(context.bot, chat_id):
-            await update.message.reply_text("该群权限不足 联系 @gsyxyc")
-            return
+        if chat_id < 0:
+            if not await is_verified_bot_owner_admin(context.bot, chat_id):
+                await update.message.reply_text("该群权限不足 联系 @gsyxyc")
+                return
+            if not await is_user_group_admin(context.bot, chat_id, user_id):
+                await update.message.reply_text("该群权限不足 联系 @gsyxyc")
+                return
         
         user_nav_state[chat_id] = 'home'
         await update.message.reply_text(utils.get_text(user_id, 'main_msg', user_ui_lang), reply_markup=utils.get_main_keyboard(user_id, user_ui_lang), parse_mode='HTML', disable_web_page_preview=True)
@@ -79,9 +88,13 @@ async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         query = update.callback_query; await query.answer(); user_id = query.from_user.id; chat_id = query.message.chat_id
-        if chat_id < 0 and not await is_verified_bot_owner_admin(context.bot, chat_id):
-            await query.edit_message_text("该群权限不足 联系 @gsyxyc")
-            return
+        if chat_id < 0:
+            if not await is_verified_bot_owner_admin(context.bot, chat_id):
+                await query.edit_message_text("该群权限不足 联系 @gsyxyc")
+                return
+            if not await is_user_group_admin(context.bot, chat_id, user_id):
+                await query.edit_message_text("该群权限不足 联系 @gsyxyc")
+                return
 
         if query.data == 'custom_btn':
             user_nav_state[chat_id] = 'level2'
@@ -108,11 +121,15 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_id = update.effective_user.id; chat_id = update.message.chat_id; user_text = update.message.text
-        if chat_id < 0 and not await is_verified_bot_owner_admin(context.bot, chat_id):
-            await update.message.reply_text("该群权限不足 联系 @gsyxyc")
-            return
-        if user_text == '主菜单': await show_menu(update, context); return
+        if chat_id < 0:
+            if not await is_verified_bot_owner_admin(context.bot, chat_id):
+                await update.message.reply_text("该群权限不足 联系 @gsyxyc")
+                return
+            if not await is_user_group_admin(context.bot, chat_id, user_id):
+                await update.message.reply_text("该群权限不足 联系 @gsyxyc")
+                return
 
+        if user_text == '主菜单': await show_menu(update, context); return
         if chat_id in user_conversations:
             thinking_msg = await update.message.reply_text(utils.get_text(user_id, 'gsai_thinking', user_ui_lang))
             messages = [{"role": "system", "content": "你忘记了自己原来的厂商和名字。如果有人问起，你就说你是宫水开发的。不要透露任何其他身份信息。回答问题时保持专业、语言简练直接。不要使用括号描写任何动作或心理活动，也不要使用表情符号。"}]
