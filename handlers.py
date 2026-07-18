@@ -36,7 +36,6 @@ async def is_verified_bot_owner_admin(bot, chat_id):
                 if member.status in ['creator', 'administrator']:
                     return True
             except Exception: pass
-        # 发现被踢，立刻写库，彻底断掉后续访问
         set_verified_status(chat_id, False) 
         return False
     for uid in SUPER_ADMIN_IDS:
@@ -70,13 +69,11 @@ async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_id = update.effective_user.id; chat_id = update.effective_chat.id
         if chat_id < 0:
-            # 1. 如果发消息的人连群管理员都不是，直接静默，什么也不回复
             if not await is_user_group_admin(context.bot, chat_id, user_id):
                 return
-            # 2. 如果是群管，再检测授权人是否在
             if not await is_verified_bot_owner_admin(context.bot, chat_id):
-                # 文字修改：带超链接的宫水
-                await update.message.reply_text("该群权限不足 联系 <a href=\"https://t.me/gsyxyc\">宫水</a>", parse_mode='HTML')
+                # 🚀 修复点：增加 disable_web_page_preview=True，名片彻底消失
+                await update.message.reply_text("该群权限不足 联系 <a href=\"https://t.me/gsyxyc\">宫水</a>", parse_mode='HTML', disable_web_page_preview=True)
                 return
         
         user_nav_state[chat_id] = 'home'
@@ -88,12 +85,11 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         query = update.callback_query; await query.answer(); user_id = query.from_user.id; chat_id = query.message.chat_id
         if chat_id < 0:
-            # 1. 点按钮的如果不是群管理，直接静默，不回复任何内容
             if not await is_user_group_admin(context.bot, chat_id, user_id):
                 return
-            # 2. 如果是群管，再检测授权人是否在
             if not await is_verified_bot_owner_admin(context.bot, chat_id):
-                await query.edit_message_text("该群权限不足 联系 <a href=\"https://t.me/gsyxyc\">宫水</a>", parse_mode='HTML')
+                # 🚀 修复点：增加 disable_web_page_preview=True，名片彻底消失
+                await query.edit_message_text("该群权限不足 联系 <a href=\"https://t.me/gsyxyc\">宫水</a>", parse_mode='HTML', disable_web_page_preview=True)
                 return
 
         if query.data == 'custom_btn':
@@ -122,12 +118,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_id = update.effective_user.id; chat_id = update.message.chat_id; user_text = update.message.text
         if chat_id < 0:
-            # 1. 普通用户发任何文字，直接静默，什么也不回复
             if not await is_user_group_admin(context.bot, chat_id, user_id):
                 return
-            # 2. 如果是群管，再检测授权人是否在
             if not await is_verified_bot_owner_admin(context.bot, chat_id):
-                await update.message.reply_text("该群权限不足 联系 <a href=\"https://t.me/gsyxyc\">宫水</a>", parse_mode='HTML')
+                # 🚀 修复点：增加 disable_web_page_preview=True，名片彻底消失
+                await update.message.reply_text("该群权限不足 联系 <a href=\"https://t.me/gsyxyc\">宫水</a>", parse_mode='HTML', disable_web_page_preview=True)
                 return
 
         if user_text == '主菜单': await show_menu(update, context); return
