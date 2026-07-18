@@ -2,7 +2,8 @@ import os
 import psycopg2
 from psycopg2 import pool
 import json
-from config import DATABASE_URL  # 不再读环境变量，直接读取 config.py
+
+DATABASE_URL = os.getenv('DATABASE_URL')
 
 # 创建数据库连接池
 db_pool = None
