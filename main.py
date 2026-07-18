@@ -1,62 +1,58 @@
 import os
-import sys
-import time
-import subprocess
 import threading
+import asyncio
 import logging
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from flask import Flask
+from telegram.ext import CommandHandler, CallbackQueryHandler, MessageHandler, filters, ChatMemberHandler, Application
+
+import handlers
+from config import BOT_TOKEN
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# ================= 纯同步保活服务（主进程） =================
-class HealthHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header('Content-type', 'text/html')
-        self.end_headers()
-        self.wfile.write(b'Bot is running!')
+app = Flask(__name__)
+@app.route('/')
+def home():
+    return "Bot is running!"
 
-def run_http_server():
+def run_web():
     port = int(os.getenv("PORT", 8080))
-    server = HTTPServer(('0.0.0.0', port), HealthHandler)
-    print(f"🟢 保活服务已启动 (端口 {port})")
-    server.serve_forever()
+    # 🟢 关键修复：关闭调试模式和重载器，彻底避开 set_wakeup_fd 底层报错
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False, threaded=True)
 
-# ================= 主进程守护（保证机器人永不僵死） =================
-if __name__ == "__main__":
-    # 1. 启动保活服务
-    http_thread = threading.Thread(target=run_http_server, daemon=True)
-    http_thread.start()
-    
-    print("👶 主进程已启动。正在为机器人开启纯净进程守护...")
-    
-    # 2. 主循环：永远让机器人以纯净的子进程运行
+async def run_bot_loop():
     while True:
         try:
-            # 启动一个全新的、干净的 Python 子进程来跑机器人
-            print("🚀 启动全新的机器人子进程...")
-            # 传入参数 `--run-bot` 告诉子进程它是机器人
-            bot_process = subprocess.Popen(
-                [sys.executable, "main.py", "--run-bot"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True
-            )
-            
-            # 实时打印子进程的日志
-            for line in bot_process.stdout:
-                print(line.strip())
-                
-            # 等待子进程结束（如果是因为超时死掉，会走到这里）
-            bot_process.wait()
-            
-            print(f"⚠️ 机器人子进程已退出 (退出码: {bot_process.returncode})")
-            print("🔄 机器人即将在 5 秒后由父进程重新拉起...")
-            time.sleep(5)
-            
-        except KeyboardInterrupt:
-            print("手动停止父进程...")
-            break
+            print("🚀 正在启动机器人核心（单进程模式，极省内存）...")
+            bot_app = Application.builder().token(BOT_TOKEN).build()
+            handlers.application = bot_app
+
+            bot_app.add_handler(CommandHandler("start", handlers.show_menu))
+            bot_app.add_handler(CallbackQueryHandler(handlers.button_click))
+            bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.handle_message))
+            bot_app.add_handler(ChatMemberHandler(handlers.chat_member_update))
+
+            # 清理残留的 Webhook 连接
+            await bot_app.bot.delete_webhook(drop_pending_updates=True)
+
+            print("✅ 机器人已上线，开始监听消息...")
+            # 这是一个会一直阻塞的命令，只要它不报错，就一直在这里挂机
+            await bot_app.run_polling()
+
         except Exception as e:
-            print(f"❌ 守护进程出现错误: {e}")
-            time.sleep(5)
+            print(f"❌ 机器人遭遇意外崩溃：{e}")
+            print("🔄 正在等待 5 秒后自动重启...")
+            await asyncio.sleep(5)
+
+if __name__ == "__main__":
+    web_thread = threading.Thread(target=run_web, daemon=True)
+    web_thread.start()
+
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(run_bot_loop())
+    except KeyboardInterrupt:
+        print("手动停止机器人...")
+    finally:
+        loop.close()
