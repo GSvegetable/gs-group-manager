@@ -1,16 +1,14 @@
 import os
+import sys
+import time
+import subprocess
 import threading
-import asyncio
 import logging
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from telegram.ext import CommandHandler, CallbackQueryHandler, MessageHandler, filters, ChatMemberHandler, Application
-
-import handlers
-from config import BOT_TOKEN
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
-# ================= 纯同步保活服务 =================
+# ================= 纯同步保活服务（主进程） =================
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
@@ -24,46 +22,41 @@ def run_http_server():
     print(f"🟢 保活服务已启动 (端口 {port})")
     server.serve_forever()
 
-# ================= 永驻事件循环机器人核心 =================
-async def run_bot_loop(loop):
-    while True:
-        try:
-            print("🚀 正在装载机器人的核心功能...")
-            # 使用 loop.run_until_complete 跑，而不是 asyncio.run，防止循环被销毁
-            app = Application.builder().token(BOT_TOKEN).build()
-            handlers.application = app
-
-            print("🧹 正在清理残留的 Webhook 连接...")
-            await app.bot.delete_webhook(drop_pending_updates=True)
-
-            app.add_handler(CommandHandler("start", handlers.show_menu))
-            app.add_handler(CallbackQueryHandler(handlers.button_click))
-            app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handlers.handle_message))
-            app.add_handler(ChatMemberHandler(handlers.chat_member_update))
-
-            print("✅ 机器人已稳定上线，开始监听消息...")
-            # 在同一个事件循环里跑，绝对不会再报 `Cannot close a running event loop`
-            await app.run_polling()
-
-        except Exception as e:
-            print(f"❌ 机器人遭遇意外崩溃：{e}")
-            print("🔄 正在等待 5 秒后自动重启...")
-            await asyncio.sleep(5)
-
+# ================= 主进程守护（保证机器人永不僵死） =================
 if __name__ == "__main__":
-    # 1. 启动纯同步网页保活线程
+    # 1. 启动保活服务
     http_thread = threading.Thread(target=run_http_server, daemon=True)
     http_thread.start()
     
-    # 2. 创建一个永远不会关闭的永久事件循环
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    print("👶 主进程已启动。正在为机器人开启纯净进程守护...")
     
-    try:
-        print("✅ 无限事件循环已启动，机器人开始进入永不掉线模式...")
-        # 让这个永久循环去跑机器人的守护逻辑
-        loop.run_until_complete(run_bot_loop(loop))
-    except KeyboardInterrupt:
-        print("手动停止机器人...")
-    finally:
-        loop.close()
+    # 2. 主循环：永远让机器人以纯净的子进程运行
+    while True:
+        try:
+            # 启动一个全新的、干净的 Python 子进程来跑机器人
+            print("🚀 启动全新的机器人子进程...")
+            # 传入参数 `--run-bot` 告诉子进程它是机器人
+            bot_process = subprocess.Popen(
+                [sys.executable, "main.py", "--run-bot"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True
+            )
+            
+            # 实时打印子进程的日志
+            for line in bot_process.stdout:
+                print(line.strip())
+                
+            # 等待子进程结束（如果是因为超时死掉，会走到这里）
+            bot_process.wait()
+            
+            print(f"⚠️ 机器人子进程已退出 (退出码: {bot_process.returncode})")
+            print("🔄 机器人即将在 5 秒后由父进程重新拉起...")
+            time.sleep(5)
+            
+        except KeyboardInterrupt:
+            print("手动停止父进程...")
+            break
+        except Exception as e:
+            print(f"❌ 守护进程出现错误: {e}")
+            time.sleep(5)
