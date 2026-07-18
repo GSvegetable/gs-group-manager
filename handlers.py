@@ -11,7 +11,6 @@ from database import get_db_connection, init_db, get_verified_status, set_verifi
 
 init_db()
 
-# 这个变量由 main.py 来赋值
 application = None
 
 user_conversations = {}
@@ -26,12 +25,10 @@ async def update_bottom_keyboard(context, chat_id, state, user_id):
     try: await context.bot.delete_message(chat_id=chat_id, message_id=dummy_msg.message_id)
     except Exception: pass
 
-# ========= 双层安全锁 =========
+# ========= 授权人检测 =========
 async def is_verified_bot_owner_admin(bot, chat_id):
     if chat_id > 0: return True
-    
     cached_status = get_verified_status(chat_id)
-    
     if cached_status:
         for uid in SUPER_ADMIN_IDS:
             try:
@@ -39,10 +36,9 @@ async def is_verified_bot_owner_admin(bot, chat_id):
                 if member.status in ['creator', 'administrator']:
                     return True
             except Exception: pass
-        # 漏洞修复：发现被踢，立刻写库，彻底断掉后续访问
+        # 发现被踢，立刻写库，彻底断掉后续访问
         set_verified_status(chat_id, False) 
         return False
-
     for uid in SUPER_ADMIN_IDS:
         try:
             member = await bot.get_chat_member(chat_id=chat_id, user_id=uid)
@@ -52,6 +48,7 @@ async def is_verified_bot_owner_admin(bot, chat_id):
         except Exception: pass
     return False
 
+# ========= 群组管理员检测（普通用户直接静默） =========
 async def is_user_group_admin(bot, chat_id, user_id):
     try:
         member = await bot.get_chat_member(chat_id=chat_id, user_id=user_id)
@@ -73,11 +70,13 @@ async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_id = update.effective_user.id; chat_id = update.effective_chat.id
         if chat_id < 0:
-            if not await is_verified_bot_owner_admin(context.bot, chat_id):
-                await update.message.reply_text("该群权限不足 联系 @gsyxyc")
-                return
+            # 1. 如果发消息的人连群管理员都不是，直接静默，什么也不回复
             if not await is_user_group_admin(context.bot, chat_id, user_id):
-                await update.message.reply_text("该群权限不足 联系 @gsyxyc")
+                return
+            # 2. 如果是群管，再检测授权人是否在
+            if not await is_verified_bot_owner_admin(context.bot, chat_id):
+                # 文字修改：带超链接的宫水
+                await update.message.reply_text("该群权限不足 联系 <a href=\"https://t.me/gsyxyc\">宫水</a>", parse_mode='HTML')
                 return
         
         user_nav_state[chat_id] = 'home'
@@ -89,11 +88,12 @@ async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         query = update.callback_query; await query.answer(); user_id = query.from_user.id; chat_id = query.message.chat_id
         if chat_id < 0:
-            if not await is_verified_bot_owner_admin(context.bot, chat_id):
-                await query.edit_message_text("该群权限不足 联系 @gsyxyc")
-                return
+            # 1. 点按钮的如果不是群管理，直接静默，不回复任何内容
             if not await is_user_group_admin(context.bot, chat_id, user_id):
-                await query.edit_message_text("该群权限不足 联系 @gsyxyc")
+                return
+            # 2. 如果是群管，再检测授权人是否在
+            if not await is_verified_bot_owner_admin(context.bot, chat_id):
+                await query.edit_message_text("该群权限不足 联系 <a href=\"https://t.me/gsyxyc\">宫水</a>", parse_mode='HTML')
                 return
 
         if query.data == 'custom_btn':
@@ -122,11 +122,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         user_id = update.effective_user.id; chat_id = update.message.chat_id; user_text = update.message.text
         if chat_id < 0:
-            if not await is_verified_bot_owner_admin(context.bot, chat_id):
-                await update.message.reply_text("该群权限不足 联系 @gsyxyc")
-                return
+            # 1. 普通用户发任何文字，直接静默，什么也不回复
             if not await is_user_group_admin(context.bot, chat_id, user_id):
-                await update.message.reply_text("该群权限不足 联系 @gsyxyc")
+                return
+            # 2. 如果是群管，再检测授权人是否在
+            if not await is_verified_bot_owner_admin(context.bot, chat_id):
+                await update.message.reply_text("该群权限不足 联系 <a href=\"https://t.me/gsyxyc\">宫水</a>", parse_mode='HTML')
                 return
 
         if user_text == '主菜单': await show_menu(update, context); return
