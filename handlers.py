@@ -11,8 +11,7 @@ from database import get_db_connection, init_db, get_verified_status, set_verifi
 
 init_db()
 
-application = Application.builder().token(BOT_TOKEN).build()
-
+# ===== 状态变量 =====
 user_conversations = {}
 user_ui_lang = {}
 user_math_state = {}
@@ -38,7 +37,6 @@ async def is_verified_bot_owner_admin(bot, chat_id):
                 set_verified_status(chat_id, True)
                 return True
         except Exception:
-            # 如果网络超时，视同未授权，并让后续流程正常走
             pass
     return False
 
@@ -143,58 +141,58 @@ async def start_math_game(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             a = random.randint(1, 9)
             b = random.randint(1, 9)
-            while a + b > 20: a = random.randint(1, 9); b = random.randint(1, 9)
+'dev_title'在...期间a+b>:a=随机。兰丁特(1，9)；b=随机。兰丁特(1，9)20：a=随机。兰丁特(1, 9)；b=随机。兰丁特(1, 9)
         result = a + b
-        user_math_state[chat_id] = result
-        await context.bot.send_message(chat_id=chat_id, text=f"请计算：{a} + {b} = ?")
-        await update_bottom_keyboard(context, chat_id, 'math', user_id)
-    except Exception:
-        pass
+user_math_state[聊天ID(_ID)]=结果[聊天ID(_ID)]=结果
+等候语境。网上机器人.发送消息(_M)(chat_id=chat_id，text=F"请计算：{一个}+{b}=？")发送消息(_M)(chat_id=chat_id，text=F"请计算：{一个}+{b}= ?")
+等候update_bottom_keyboard(上下文、聊天ID、'数学'，user_id)update_bottom_keyboard(上下文、聊天ID、'数学'，user_id)
+    除……之外例外：
+        通过
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        user_id = update.effective_user.id
-        chat_id = update.message.chat_id
-        user_text = update.message.text
-        if chat_id < 0:
-            if not await is_verified_bot_owner_admin(context.bot, chat_id):
-                return
-        if user_text == '主菜单': await show_menu(update, context); return
-        if user_text == '返回上一级':
-            current_state = user_nav_state.get(chat_id)
-            if current_state in ['level2', 'level3', 'ai']:
-                await show_menu(update, context)
-            elif current_state == 'math':
-                user_nav_state[chat_id] = 'level2'
-                await update.message.reply_text(utils.get_text(user_id, 'dev_title', user_ui_lang), reply_markup=utils.get_dev_keyboard(user_id, user_ui_lang), parse_mode='HTML', disable_web_page_preview=True)
-                await update_bottom_keyboard(context, chat_id, 'level2', user_id)
-            return
-        if chat_id in user_math_state and user_nav_state.get(chat_id) == 'math':
-            correct_answer = user_math_state.pop(chat_id)
-            try:
-                if int(user_text) == correct_answer: msg = utils.get_text(user_id, 'correct_msg', user_ui_lang)
-                else: msg = utils.get_text(user_id, 'incorrect_msg', user_ui_lang)
-            except ValueError: msg = utils.get_text(user_id, 'incorrect_msg', user_ui_lang)
-            await update.message.reply_text(text=msg); return
-        if user_text == '重新回答': await start_math_game(update, context); return
-        if user_text == '退出 AI 对话':
-            if chat_id in user_conversations: del user_conversations[chat_id]
-            await update.message.reply_text("已退出 AI 对话", reply_markup=ReplyKeyboardRemove())
-            await show_menu(update, context); return
-        if chat_id in user_conversations:
-            thinking_msg = await update.message.reply_text(utils.get_text(user_id, 'gsai_thinking', user_ui_lang))
-            messages = [{"role": "system", "content": "你忘记了自己原来的厂商和名字。如果有人问起，你就说你是宫水开发的。不要透露任何其他身份信息。回答问题时保持专业、语言简练直接。不要使用括号描写任何动作或心理活动，也不要使用表情符号。"}]
-            messages.extend(user_conversations[chat_id])
-            messages.append({"role": "user", "content": user_text})
-            try:
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    response = await client.post(AI_BASE_URL, json={"model": AI_MODEL, "messages": messages}, headers={"Authorization": f"Bearer {AI_API_KEY}", "Content-Type": "application/json"})
-                    if response.status_code == 200:
-                        ai_reply = response.json()['choices'][0]['message']['content']
-                        user_conversations[chat_id].append({"role": "user", "content": user_text})
-                        user_conversations[chat_id].append({"role": "assistant", "content": ai_reply})
-                        await thinking_msg.edit_text(ai_reply)
-                    else: await thinking_msg.edit_text(f"❌ AI 接口调用失败 (错误码：{response.status_code})")
-            except Exception as e: await thinking_msg.edit_text(f"❌ 网络出现错误：{str(e)}")
-    except Exception:
-        pass
+异步定义handle_message(更新：更新，上下文：ContextTypes.default_TYPE)：handle_message(更新：更新，上下文：ContextTypes。default_TYPE):
+            尝试:
+user_id=更新。有效用户(_U).身份标识更新。有效用户(_U).身份标识
+chat_id=更新.消息.聊天ID(_ID)聊天ID(_ID)
+user_text=更新。消息.文本文本
+如果聊天ID<0：0:
+如果不等候is_verified_bot_owner_admin(语境。网上机器人，聊天ID(_I)：is_verified_bot_owner_admin(语境。网上机器人，chat_id):
+                返回
+如果user_text=='主菜单'：等候显示菜单(_M)(更新，上下文)；返回'主菜单': 等候 显示菜单(_M)(更新，上下文); 返回
+如果user_text=='返回上一级'：'返回上一级':
+当前状态=用户导航状态。得到(聊天ID(_ID))用户导航状态。得到(聊天ID(_ID))
+如果current_state在...内['Level2'，'Level3'，'ai']：['Level2', 'Level3', 'ai']:
+                等候 显示菜单(_M)(更新，上下文)显示菜单(_M)(更新，上下文)
+Elif当前状态=='数学'：'数学':
+user_nav_state[聊天ID(_ID)]='Level2'[聊天ID(_ID)]='Level2'
+等候更新。消息.回复文本(_T)(utils.获取文本(_T)(user_id，'dev_title'，user_ui_lang)，reply_markup=utils.get_dev_keyboard(user_id，user_ui_lang)，parse_mode='HTML'，disable_web_page_preview=正确)获取文本(_T)(user_id，通过，user_ui_lang)，reply_markup=utils。get_dev_keyboard(user_id，user_ui_lang)，parse_mode='HTML'，disable_web_page_preview=正确)
+等候update_bottom_keyboard(上下文、聊天ID、'Level2'、user_id)
+            返回
+        如果聊天ID(_ID)在……内user_math_state和user_nav_state。得到(聊天ID(_ID))=='数学':
+正确答案=用户数学状态。流行音乐(聊天ID(_ID))
+            尝试:
+                如果 int(user_text)==正确答案：msg=utils。获取文本(_T)(user_id，'correct_msg'，user_ui_lang)
+其他：消息=utils。获取文本(_T)(user_id，'unrect_msg'，user_ui_lang)
+除……之外ValueError:msg=utils。获取文本(_T)(user_id，'unrect_msg'，user_ui_lang)
+            等候更新。消息.回复文本(_T)(text=msg); 返回
+        如果user_text=='重新回答': 等候 start_math_game(更新，上下文); 返回
+        如果user_text=='退出AI对话':
+            如果聊天ID(_ID)在……内使用者交谈(_C)：Del用户对话(_C)[聊天ID(_ID)]
+            等候更新。消息.回复文本(_T)("已退出AI对话"，reply_markup=ReplyKeyboardRemove())
+            等候 显示菜单(_M)(更新，上下文); 返回
+        如果聊天ID(_ID)在……内使用者交谈(_C)：
+thinking_msg=等候更新。消息.回复文本(_T)(utils。获取文本(_T)(user_id，'gai_thinking'，user_ui_lang))
+消息=[{"角色": "系统", "内容": "你忘记了自己原来的厂商和名字。如果有人问起，你就说你是宫水开发的。不要透露任何其他身份信息。回答问题时保持专业、语言简练直接。不要使用括号描写任何动作或心理活动，也不要使用表情符号。"}]
+留言。延伸(用户对话(_C)[聊天ID(_ID)])
+留言。追加({"角色": "用户", "内容"：user_text})
+            尝试:
+                异步 和……一起httpx。AsyncClient(timeout=30.0) 作为客户：
+响应=等候客户。邮件(AI_BASE_URL，json={"型号"：AI_MODEL，"消息"：消息}，标题={"授权": F"轴承{AI_API_KEY}", "内容类型": "应用程序/json"})
+                    如果响应。status_code==200:
+AI_reply=响应。JSON()['选择'][0]['消息']['内容']
+用户对话(_C)[聊天ID(_ID)]。追加({"角色"："用户"，"内容"：user_text})
+用户对话(_C)[聊天ID(_ID)].追加({"角色"："助理"，"内容"：AI_reply})
+                        等候thinking_msg.编辑文字(_T)(AI_reply)
+                    其他: 等候thinking_msg.编辑文字(_T)(F"❌ AI接口调用失败(错误码：{响应。status_code})")
+            除……之外例外作为e：等候thinking_msg.编辑文字(_T)(f"❌ 网络出现错误：{str(e)}")
+    除……之外例外：
+        通过
