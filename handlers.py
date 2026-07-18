@@ -11,7 +11,7 @@ from database import get_db_connection, init_db, get_verified_status, set_verifi
 
 init_db()
 
-# 这个变量由 main.py 来赋值，绝对不在此处浪费内存
+# 这个变量由 main.py 来赋值
 application = None
 
 user_conversations = {}
@@ -54,9 +54,10 @@ async def show_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if chat_id < 0 and not await is_verified_bot_owner_admin(context.bot, chat_id):
             await update.message.reply_text("❌ 未授权：开发者账号权限不足，服务已暂停。")
             return
-        if not await utils.is_channel_member(context.bot, user_id, REQUIRED_CHANNEL):
-            await update.message.reply_text(utils.get_text(user_id, 'channel_msg', user_ui_lang), reply_markup=utils.get_channel_keyboard(user_id, user_ui_lang, f"https://t.me/{REQUIRED_CHANNEL}"), parse_mode='HTML')
-            return
+        
+        # ========== 【已删除强制入群频道检测部分】 ==========
+        # 原本这里有个 if 判断 REQUIRED_CHANNEL，现在去掉了。
+        
         user_nav_state[chat_id] = 'home'
         await update.message.reply_text(utils.get_text(user_id, 'main_msg', user_ui_lang), reply_markup=utils.get_main_keyboard(user_id, user_ui_lang), parse_mode='HTML', disable_web_page_preview=True)
         await update_bottom_keyboard(context, chat_id, 'home', user_id)
