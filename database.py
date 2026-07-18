@@ -15,17 +15,24 @@ def get_db_connection():
 def init_db():
     conn = get_db_connection()
     cur = conn.cursor()
-    # 创建群组配置表
+    # 1. 创建 groups 表
     cur.execute("""
         CREATE TABLE IF NOT EXISTS groups (
             group_id BIGINT PRIMARY KEY,
             welcome_text TEXT,
             welcome_photo_id TEXT,
-            admin_ids TEXT DEFAULT '[]',
-            verified BOOLEAN DEFAULT FALSE
+            admin_ids TEXT DEFAULT '[]'
         )
     """)
-    # 创建广告触发词表
+    
+    # ===== ✨ 致命修复点：如果表里缺了 verified 列，立刻加上 =====
+    cur.execute("""
+        ALTER TABLE groups 
+        ADD COLUMN IF NOT EXISTS verified BOOLEAN DEFAULT FALSE;
+    """)
+    # ============================================================
+
+    # 2. 创建广告触发词表
     cur.execute("""
         CREATE TABLE IF NOT EXISTS triggers (
             id SERIAL PRIMARY KEY,
@@ -33,7 +40,7 @@ def init_db():
             word TEXT
         )
     """)
-    # 创建定时任务表
+    # 3. 创建定时任务表
     cur.execute("""
         CREATE TABLE IF NOT EXISTS tasks (
             id SERIAL PRIMARY KEY,
