@@ -42,6 +42,13 @@ def init_db():
             message_text TEXT
         )
     """)
+    # 创建群组授权表
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS authorized_groups (
+            group_id BIGINT PRIMARY KEY,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     conn.commit()
     cur.close()
     conn.close()
